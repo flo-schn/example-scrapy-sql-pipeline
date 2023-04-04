@@ -1,3 +1,3 @@
 ITEM_PIPELINES = {
-    'ORF.pipelines.SQLpipe': 100,
+    'myproject.pipelines.SQLpipe': 100,
 }
