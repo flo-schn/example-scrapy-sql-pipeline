@@ -10,13 +10,15 @@ load_dotenv(".env")
 class SQLpipe:
 
     def __init__(self):
+        # list needed to collect additional info for logging spider behaviour
+        self.sql_errors = []
         # geting database credentials into pipeline
-        self.host = os.environ.get("dbserver_ip")
-        self.user = os.environ.get("dbuser")
+        self.host = os.environ.get("dbServer_ip")
+        self.user = os.environ.get("dbUser")
         self.password = os.environ.get("dbpass")
-        self.db = os.environ.get("dbname")
-        self.table = os.environ.get("dbtable")
-        self.charset = 'utf8mb4'
+        self.db = os.environ.get("dbName")
+        self.table = os.environ.get("dbTable")
+        self.charset = os.environ.get('dbCharSet')
 
     # establishes connection once spider starts crawling
     def open_spider(self, spider):
@@ -52,7 +54,7 @@ class SQLpipe:
         try:
             # checking if item is already in database
             self.cursor.execute('SELECT article_id FROM {table} WHERE article_id = %s'.format(table=self.table), (item['article_id']))
-            if len(self.cursor.fetchall()) == 0:
+            if not self.cursor.fetchone():
                 # if item is not alraedy in database then dumping item into database
                 self.cursor.execute('''
                     INSERT INTO {table}
@@ -67,17 +69,26 @@ class SQLpipe:
                     VALUES 
                     (%s, %s, %s, %s, %s, %s, %s, NOW())'''.format(table=self.table), 
                     [item['title'], item['link'], item['subject'], item['date'], item['article_id'], item['Category'], item['Type']])
-
                 self.dbconnection.commit()
+                # supplementing scrapy stats
+                spider.crawler.stats.inc_value('item_scraped_count/new_item')
+
 
             # if item is already in database then drop item
             else:
+                # supplementing scrapy stats and droping item
+                spider.crawler.stats.inc_value('item_dropped_count/already_in_db') 
                 raise DropItem(f"SQLPipe: Duplicate item found: {item!r}")
       
         # catch any potential sql errors
         except pymysql.Error as e:
+            # supplementing scrapy stats and droping item
+            spider.crawler.stats.inc_value('item_dropped_count/sql_insertion_error')
+            self.sql_errors.append(f"Error inserting item: {e}")
             raise DropItem(f'Error inserting item: {e}')
 
-    # close connection to database once spider finishes crawling
     def close_spider(self, spider):
+        # supplementing scrapy stats
+        spider.crawler.stats.set_value('sql_errors', ' - '.join(self.sql_errors))
+        # closing connection to db
         self.dbconnection.close()
